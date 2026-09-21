@@ -301,8 +301,11 @@ def api_events():
 
 
 if __name__ == "__main__":
-    # Port is overridable because macOS occupies 5000 with the AirPlay
-    # Receiver: PORT=5001 python3 app.py
+    # Render binds to a dynamic port and expects the server to listen on 0.0.0.0,
+    # not localhost/127.0.0.1.
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "0").lower() in {"1", "true", "yes", "on"}
     # use_reloader=False: the reloader runs the app twice, and a restart would
     # kill an in-progress screening run mid-way.
-    app.run(debug=True, port=int(os.getenv("PORT", "5000")), use_reloader=False, threaded=True)
+    app.run(host=host, debug=debug, port=port, use_reloader=False, threaded=True)
