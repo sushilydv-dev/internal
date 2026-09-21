@@ -1,0 +1,45 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local SQLite database
+screener.db
+*.db
+
+# Editor / IDE files
+.vscode/
+.idea/
+.DS_Store
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Build / packaging artifacts
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+
+# OS generated files
+Thumbs.db
+
+# Render / deployment local files
+.render/
+
+# Optional: keep generated local media if not wanted
+# static/uploads/
+# uploads/
