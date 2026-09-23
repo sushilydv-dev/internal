@@ -170,6 +170,8 @@ a.step:hover { text-decoration: none; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.stop-btn { background: #fff; border-color: #8e1b12; color: #8e1b12; }
+.btn.stop-btn:hover:not(:disabled) { background: #fff; border-color: #8e1b12; color: #8e1b12; }
 .btn.link { border-color: transparent; background: transparent; color: var(--accent); padding: 0 6px; }
 .btn.link:hover { background: var(--accent-soft); }
 .btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
@@ -265,6 +267,10 @@ textarea { resize: vertical; min-height: 220px; line-height: 1.55; font-size: 13
 .toolbar .spacer { flex: 1; }
 .toolbar input[type=search] { width: 240px; }
 .toolbar select { width: auto; min-width: 160px; }
+.toolbar #cand-page-size { min-width: 70px; }
+
+.pagination { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--border); }
+.pagination .spacer { flex: 1; }
 
 .select-bar {
   position: sticky; bottom: 14px; z-index: 5;

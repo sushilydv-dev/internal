@@ -248,6 +248,19 @@ def api_get_run(run_id):
     })
 
 
+@app.delete("/api/runs/<int:run_id>")
+def api_cancel_run(run_id):
+    run = storage.get_run(run_id)
+    if not run:
+        return _error("Run not found.", 404)
+    if run["status"] == "cancelling":
+        return jsonify({"status": "cancelling"})
+    if run["status"] != "running" or not storage.request_cancel_run(run_id):
+        return _error("This screening is no longer running.", 409)
+    storage.log("warn", "Screening stop requested by the user.", run_id)
+    return jsonify({"status": "cancelling"})
+
+
 @app.get("/api/runs/<int:run_id>/jd")
 def api_run_jd(run_id):
     run = storage.get_run(run_id)

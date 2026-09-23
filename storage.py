@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS runs (
     role_name        TEXT NOT NULL,
     jd_snapshot      TEXT NOT NULL,
     pass_threshold   INTEGER NOT NULL,
-    status           TEXT NOT NULL,          -- running | completed | failed
+    status           TEXT NOT NULL,          -- running | cancelling | cancelled | completed | failed
     total            INTEGER NOT NULL DEFAULT 0,
     processed        INTEGER NOT NULL DEFAULT 0,
     passed           INTEGER NOT NULL DEFAULT 0,
@@ -213,9 +213,18 @@ def list_runs(limit: int = 100, folder_id: str | None = None) -> list:
 def active_run_for_folder(folder_id: str):
     with _conn() as c:
         return _row(c.execute(
-            "SELECT * FROM runs WHERE folder_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1",
+            "SELECT * FROM runs WHERE folder_id = ? AND status IN ('running', 'cancelling') ORDER BY id DESC LIMIT 1",
             (folder_id,),
         ).fetchone())
+
+
+def request_cancel_run(run_id: int) -> bool:
+    with _conn() as c:
+        cur = c.execute(
+            "UPDATE runs SET status = 'cancelling' WHERE id = ? AND status = 'running'",
+            (run_id,),
+        )
+        return cur.rowcount > 0
 
 
 def mark_interrupted_runs() -> int:

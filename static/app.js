@@ -17,7 +17,7 @@ const $$ = (sel, el = document) => Array.from(el.querySelectorAll(sel));
 
 const state = {
   status: null, folder: null, selected: new Set(), poll: null,
-  cand: { outcome: "", q: "", recruit: "", role: "", sort: "screened", dir: "desc" },
+  cand: { outcome: "", q: "", recruit: "", role: "", sort: "screened", dir: "desc", page: 1, pageSize: 10 },
 };
 
 /* ---------------------------------------------------------------- helpers */
@@ -236,7 +236,7 @@ function folderHtml(data) {
       ${jdCardHtml(data, jd, hasJd)}
       <div id="live-run"></div>
       ${data.subfolders.length ? folderGrid(data.subfolders) : ""}
-      ${data.files.length || !data.subfolders.length ? resumesHtml(data, hasJd) : ""}
+      ${data.files.length ? resumesHtml(data, hasJd) : `<div class="empty">${I.inbox}<strong>No resumes here</strong>Upload .pdf or .docx files to this folder in WorkDrive.</div>`}
     </div>`;
 }
 
@@ -268,7 +268,10 @@ function resumesHtml(data, hasJd) {
   return `<section class="card">
     <div class="card-head">
       <h2>Resumes <span class="muted" style="font-weight:400">(${data.files.length})</span></h2>
-      ${data.files.length ? `<button class="btn primary" id="run-btn" disabled>${I.play} Screen selected</button>` : ""}
+      ${data.files.length ? `<div style="display:flex;gap:8px;align-items:center">
+        <button class="btn primary" id="run-btn" disabled>${I.play} Screen selected</button>
+        ${data.active_run_id ? `<button class="btn stop-btn" id="stop-btn">${I.stop || "Stop"} Stop screening</button>` : ""}
+      </div>` : ""}
     </div>
     ${data.files.length ? `<div class="table-wrap"><table>
       <thead><tr>
@@ -311,6 +314,7 @@ function renderResumeRows() {
   const hasJd = !!(data.jd && data.jd.jd_text);
   btn.disabled = !n || !hasJd || !!state.poll;
   btn.innerHTML = `${I.play} Screen selected${n ? ` (${n})` : ""}`;
+  if (state.poll) btn.disabled = true;
 }
 
 function bindFolder(view, data) {
@@ -347,7 +351,23 @@ function bindFolder(view, data) {
     renderResumeRows();
   });
   $("#run-btn").addEventListener("click", () => confirmRun(data));
+  $("#stop-btn")?.addEventListener("click", () => stopScreening(data.active_run_id));
   renderResumeRows();
+}
+
+async function stopScreening(runId) {
+  const btn = $("#stop-btn");
+  if (!runId || !btn) return;
+  btn.disabled = true;
+  btn.textContent = "Stopping…";
+  try {
+    await api(`/api/runs/${runId}`, { method: "DELETE" });
+    toast("Stopping screening");
+  } catch (e) {
+    toast(e.message, "error");
+    btn.disabled = false;
+    btn.textContent = `${I.stop || "Stop"} Stop screening`;
+  }
 }
 
 /* ---------------------------------------------------------------- create & upload */
@@ -460,13 +480,13 @@ async function pollOnce() {
   const r = data.run;
   announceFinished(p, data.screenings || []);
   const here = () => state.folder && state.folder.folder.id === p.folderId && $("#live-run");
-  if (r.status === "running") {
+  if (r.status === "running" || r.status === "cancelling") {
     if (here()) {
       const pct = r.total ? Math.round((r.processed / r.total) * 100) : 0;
       const elapsed = Date.now() - new Date(r.started_at).getTime();
       const left = r.processed && r.total > r.processed ? (elapsed / r.processed) * (r.total - r.processed) : null;
       $("#live-run").innerHTML = `<section class="card run-live"><div class="card-body" style="display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;justify-content:space-between;gap:10px"><b><span class="spinner"></span>&nbsp; Screening ${r.processed} of ${r.total}</b>
+        <div style="display:flex;justify-content:space-between;gap:10px"><b><span class="spinner"></span>&nbsp; ${r.status === "cancelling" ? "Stopping screening" : `Screening ${r.processed} of ${r.total}`}</b>
         <span class="muted">${r.passed} passed · ${secs(elapsed)} elapsed${left ? ` · about ${secs(left)} left` : ""}</span></div>
         <div class="progress"><span style="width:${pct}%"></span></div></div></section>`;
     }
@@ -475,6 +495,7 @@ async function pollOnce() {
   }
   stopPolling();
   if (r.status === "failed") toast(`Screening failed: ${r.error || "see Activity log"}`, "error");
+  if (r.status === "cancelled") toast("Screening stopped", "error");
   showRunResults(r, data.screenings || []);
   if (here()) {
     await renderFolder($("#view"), p.folderId, { quiet: true });
@@ -524,7 +545,7 @@ function resultRowHtml(s) {
 function showRunResults(r, screenings) {
   const saved = screenings.filter(s => s.outcome === "passed" && s.recruit_status === "saved").length;
   const unsaved = r.passed - saved;
-  const title = r.status === "failed" ? "Screening stopped"
+  const title = ["failed", "cancelled"].includes(r.status) ? "Screening stopped"
     : r.passed ? `${plural(r.passed, "candidate")} passed` : "No candidates passed";
   const summary = [
     r.passed ? `${saved} saved to Zoho Recruit${unsaved ? `, <b>${unsaved} not saved</b>` : ""}` : "",
@@ -638,6 +659,10 @@ async function renderCandidates(view) {
         ${seg("recruit", [["", "Any Recruit status"], ["saved", "In Recruit"], ["not_saved", "Passed, not in Recruit"]])}
         <select id="cand-role" aria-label="Position"><option value="">All positions</option></select>
         <span class="spacer"></span>
+        <label class="muted small" for="cand-page-size">Rows</label>
+        <select id="cand-page-size" aria-label="Rows per page">
+          ${[10, 20, 30].map(size => `<option value="${size}" ${state.cand.pageSize === size ? "selected" : ""}>${size}</option>`).join("")}
+        </select>
         <input type="search" id="cand-q" placeholder="Search name, email or file" value="${esc(state.cand.q)}">
       </div>
       <div id="cand-body"><div class="loading-block"><span class="spinner"></span> Loading…</div></div>
@@ -645,13 +670,22 @@ async function renderCandidates(view) {
   for (const name of ["outcome", "recruit"]) {
     $$(`[data-${name}]`).forEach(b => b.addEventListener("click", () => {
       state.cand[name] = b.dataset[name];
+      state.cand.page = 1;
       $$(`[data-${name}]`).forEach(x => x.classList.toggle("on", x === b));
       loadCandidates();
     }));
   }
-  $("#cand-role").addEventListener("change", e => { state.cand.role = e.target.value; loadCandidates(); });
+  $("#cand-role").addEventListener("change", e => { state.cand.role = e.target.value; state.cand.page = 1; loadCandidates(); });
+  $("#cand-page-size").addEventListener("change", e => {
+    state.cand.pageSize = Number(e.target.value) || 10;
+    state.cand.page = 1;
+    loadCandidates();
+  });
   let timer;
-  $("#cand-q").addEventListener("input", e => { clearTimeout(timer); timer = setTimeout(() => { state.cand.q = e.target.value.trim(); loadCandidates(); }, 250); });
+  $("#cand-q").addEventListener("input", e => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { state.cand.q = e.target.value.trim(); state.cand.page = 1; loadCandidates(); }, 250);
+  });
   loadCandidates();
 }
 
@@ -709,10 +743,17 @@ async function loadCandidates() {
   const count = $("#cand-count");
   if (count) count.textContent = `${plural(data.candidates.length, "resume")} screened${data.candidates.length === 500 ? " (newest 500)" : ""}`;
 
+  const sorted = sortCandidates(data.candidates);
+  const total = sorted.length;
+  const pages = Math.max(1, Math.ceil(total / state.cand.pageSize));
+  state.cand.page = Math.min(state.cand.page, pages);
+  const start = (state.cand.page - 1) * state.cand.pageSize;
+  const rows = sorted.slice(start, start + state.cand.pageSize);
+  const range = total ? `${start + 1}-${Math.min(start + state.cand.pageSize, total)} of ${total}` : "0 of 0";
   body.innerHTML = data.candidates.length ? `<div class="table-wrap"><table>
     ${sortableHead([["name", "Candidate"], ["position", "Position"], ["score", "Score", "num"],
                     ["", "Result"], ["recruit", "Recruit"], ["time", "Took", "num"], ["screened", "Screened"]])}
-    <tbody>${sortCandidates(data.candidates).map(c => `<tr class="${c.overall_score != null ? "clickable" : ""}" ${c.overall_score != null ? `data-screening="${c.id}"` : ""}>
+    <tbody>${rows.map(c => `<tr class="${c.overall_score != null ? "clickable" : ""}" ${c.overall_score != null ? `data-screening="${c.id}"` : ""}>
       <td><div class="primary-text">${esc(c.candidate_name || c.filename)}</div><div class="secondary-text">${esc(c.email || c.filename)}</div></td>
       <td>${esc(c.folder_path.split(" / ").slice(1).join(" / "))}</td>
       <td class="num">${scoreBadge(c.overall_score)}</td>
@@ -720,15 +761,25 @@ async function loadCandidates() {
       <td>${recruitCell(c)}</td>
       <td class="num muted small nowrap">${esc(secs(c.duration_ms))}</td>
       <td class="muted small nowrap" title="${esc(c.updated_at || "")}">${when(c.updated_at)}</td>
-    </tr>`).join("")}</tbody></table></div>`
+    </tr>`).join("")}</tbody></table></div>
+    <div class="pagination" aria-label="Candidates pagination">
+      <span class="muted small">Showing ${range}</span>
+      <span class="spacer"></span>
+      <button class="btn sm" data-page="prev" ${state.cand.page <= 1 ? "disabled" : ""}>Previous</button>
+      <span class="small">Page ${state.cand.page} of ${pages}</span>
+      <button class="btn sm" data-page="next" ${state.cand.page >= pages ? "disabled" : ""}>Next</button>
+    </div>`
     : `<div class="empty">${I.inbox}<strong>No candidates match these filters</strong></div>`;
   $$("[data-sort]", body).forEach(th => th.addEventListener("click", () => {
     const key = th.dataset.sort;
     if (!key) return;
     state.cand.dir = state.cand.sort === key && state.cand.dir === "desc" ? "asc" : "desc";
     state.cand.sort = key;
+    state.cand.page = 1;
     loadCandidates();
   }));
+  $("[data-page=prev]", body)?.addEventListener("click", () => { state.cand.page--; loadCandidates(); });
+  $("[data-page=next]", body)?.addEventListener("click", () => { state.cand.page++; loadCandidates(); });
   bindRows(body);
 }
 

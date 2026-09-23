@@ -98,14 +98,22 @@ def _run(run_id: int, folder_id: str, rescreen: bool, file_ids: list[str] | None
                 pool.submit(_safe_process, run, sid, f)
 
         final = storage.get_run(run_id)
-        storage.update_run(run_id, status="completed", finished_at=storage.now())
+        status = "cancelled" if final["status"] == "cancelling" else "completed"
+        storage.update_run(run_id, status=status, finished_at=storage.now())
+        if status == "cancelled":
+            storage.log("warn", f"Run stopped in {_human_duration(run_started)}.", run_id)
+            return
         storage.log("info", f"Run finished in {_human_duration(run_started)}: {final['passed']} passed, "
                             f"{final['rejected']} rejected, {final['failed']} failed, "
                             f"{final['deleted']} deleted from WorkDrive.", run_id)
     except Exception as e:
         traceback.print_exc()
-        storage.update_run(run_id, status="failed", error=str(e), finished_at=storage.now())
-        storage.log("error", f"Run aborted: {e}", run_id)
+        if storage.get_run(run_id)["status"] == "cancelling":
+            storage.update_run(run_id, status="cancelled", finished_at=storage.now())
+            storage.log("warn", f"Run stopped in {_human_duration(run_started)}.", run_id)
+        else:
+            storage.update_run(run_id, status="failed", error=str(e), finished_at=storage.now())
+            storage.log("error", f"Run aborted: {e}", run_id)
 
 
 def _skip_already_screened(run: dict, files: list, rescreen: bool) -> list:
@@ -135,6 +143,10 @@ def _skip_already_screened(run: dict, files: list, rescreen: bool) -> list:
 def _safe_process(run: dict, sid: int, f: dict) -> None:
     started = time.monotonic()
     try:
+        if storage.get_run(run["id"])["status"] == "cancelling":
+            storage.update_screening(sid, stage="done", outcome="failed", error="Cancelled by user.")
+            storage.bump_run(run["id"], processed=1, failed=1)
+            return
         _process(run, sid, f)
     except Exception as e:
         traceback.print_exc()
@@ -199,6 +211,10 @@ def _process(run: dict, sid: int, f: dict) -> None:
     overall = ev["overall_score"]
     passed = overall >= run["pass_threshold"]
     _save_analysis(sid, result, usage)
+    if storage.get_run(run_id)["status"] == "cancelling":
+        storage.update_screening(sid, stage="done", outcome="failed", error="Cancelled by user.")
+        storage.bump_run(run_id, processed=1, failed=1)
+        return
     storage.log("info", f"{name}: scored {overall} ({ev['recommendation']}) -> "
                         f"{'PASSED' if passed else 'rejected'} (threshold {run['pass_threshold']}) "
                         f"in {time.monotonic() - started:.1f}s.", run_id, sid)
