@@ -1,6 +1,9 @@
 # Resume Screener — WorkDrive → AI Score → Zoho Recruit
 
+check repo
+
 Ek Flask web app jo:
+
 1. Zoho **WorkDrive** ke ek folder se resumes (.pdf/.docx) one-by-one uthaata hai
 2. Har resume ko **OpenAI** se, aapki Job Description ke against, analyze karke
    `ai_score`, `skill_score`, `overall_score` + full JSON verdict deta hai
@@ -67,12 +70,12 @@ standard fields nahi hain, inhe khud banana padega:
 
 **Zoho Recruit → Setup → Modules and Fields → Candidates → New Field**
 
-| Field label       | API name (exactly yeh rakhna) | Type              |
-|--------------------|-------------------------------|-------------------|
-| AI Score           | `AI_Score`                    | Number            |
-| Skill Score         | `Skill_Score`                 | Number            |
-| Overall Score        | `Overall_Score`               | Number            |
-| JD Match Summary      | `JD_Match_Summary`            | Multi-line text   |
+| Field label      | API name (exactly yeh rakhna) | Type            |
+| ---------------- | ----------------------------- | --------------- |
+| AI Score         | `AI_Score`                    | Number          |
+| Skill Score      | `Skill_Score`                 | Number          |
+| Overall Score    | `Overall_Score`               | Number          |
+| JD Match Summary | `JD_Match_Summary`            | Multi-line text |
 
 Agar tum different API names use karna chahte ho, `config.py` me
 `RECRUIT_CUSTOM_SCORE_FIELDS` dict edit kar dena — bas ek jagah change karna hoga.
@@ -134,4 +137,5 @@ Recruit me score fields banao (Candidates): `AI_Score` (Number), `Skill_Score` (
 - Scanned/image-only PDFs se text nahi nikalta (OCR nahi hai) - wo "Failed" dikhenge.
 - Single-user local tool hai: login/auth nahi hai, team ke liye deploy karne se pehle
   auth lagana zaroori hai.
+
 # internal
