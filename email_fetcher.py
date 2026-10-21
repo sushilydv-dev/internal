@@ -156,7 +156,7 @@ def download_resume(link: str) -> tuple[bytes, str]:
     s = requests.Session()
     s.headers["User-Agent"] = _UA
     try:
-        resp = s.get(link, timeout=30, allow_redirects=True)
+        resp = s.get(link, timeout=60, allow_redirects=True)
     except requests.exceptions.RequestException as e:
         raise EmailFetchError(f"Could not open the resume link: {e}")
 
@@ -169,7 +169,7 @@ def download_resume(link: str) -> tuple[bytes, str]:
         refresh = re.search(r"http-equiv=[\"']?refresh[\"']?[^>]*URL=([^\"'>]+)", resp.text, re.I)
         if refresh:  # tracking links redirect via <meta refresh>
             try:
-                resp = s.get(urljoin(resp.url, unescape(refresh.group(1))), timeout=30, allow_redirects=True)
+                resp = s.get(urljoin(resp.url, unescape(refresh.group(1))), timeout=60, allow_redirects=True)
             except requests.exceptions.RequestException as e:
                 raise EmailFetchError(f"Could not open the resume link: {e}")
             continue
@@ -183,7 +183,7 @@ def download_resume(link: str) -> tuple[bytes, str]:
         if not nxt:
             break
         try:
-            resp = s.get(nxt, timeout=30, allow_redirects=True, headers={"Referer": resp.url})
+            resp = s.get(nxt, timeout=60, allow_redirects=True, headers={"Referer": resp.url})
         except requests.exceptions.RequestException as e:
             raise EmailFetchError(f"Could not download the resume file: {e}")
     raise EmailFetchError("Resume page opened but no downloadable PDF/DOCX was found (the page may need a login or JavaScript).")
