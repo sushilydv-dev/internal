@@ -1,16 +1,12 @@
 services:
   - type: web
     name: resume-screener
-    runtime: python
+    runtime: docker   # Dockerfile installs Chrome + a virtual screen for the Indeed download
     plan: starter
-    buildCommand: pip install -r requirements.txt
-    # ONE worker: screening runs and the email fetch keep their progress in memory
-    # and run in background threads, so every request must hit the same process.
-    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 180 --bind 0.0.0.0:$PORT
     healthCheckPath: /
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
+      - key: FETCH_TABS
+        value: "2"   # parallel Chrome tabs; raise to 4 on a bigger plan
       - key: ZOHO_DOMAIN
         value: com
       - key: ZOHO_CLIENT_ID

@@ -44,7 +44,7 @@ class EmailFetchError(Exception):
     pass
 
 
-_BROWSER_TABS = 4      # parallel Chrome tabs
+_BROWSER_TABS = int(os.getenv("FETCH_TABS", "4"))  # parallel Chrome tabs (each ~150 MB RAM)
 _CHROME_BATCH = 20     # restart Chrome after this many resumes
 _UPLOAD_WORKERS = 4    # parallel WorkDrive uploads
 _IMAP_BATCH = 20       # mail bodies fetched per IMAP call
@@ -383,7 +383,9 @@ async def _pipeline(jobs: list[dict], finish) -> None:
                 else:
                     try:
                         pw = await async_playwright().start()
-                        browser = await pw.chromium.launch(channel="chrome", headless=False)
+                        browser = await pw.chromium.launch(
+                            channel="chrome", headless=False,
+                            args=["--no-sandbox", "--disable-dev-shm-usage"] if sys.platform.startswith("linux") else [])
                     except Exception as e:
                         launch_err = EmailFetchError(f"Could not start Chrome: {str(e).splitlines()[0]}")
 
