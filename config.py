@@ -105,3 +105,14 @@ RECRUIT_SCORE_FIELDS = {
 # "Resume" is the correct one but accepts only a single file per candidate,
 # so "Others" catches re-uploads for a candidate who already has one.
 RECRUIT_ATTACHMENT_CATEGORIES = ("Resume", "Others")
+
+# ---- Email fetch (Indeed application emails -> WorkDrive) ----
+# Gmail needs IMAP enabled and a 16-char App Password (Google Account ->
+# Security -> 2-Step Verification -> App passwords). The normal password won't work.
+EMAIL_IMAP_HOST = os.getenv("EMAIL_IMAP_HOST", "imap.gmail.com").strip()
+EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "helios.cvtechlabs@gmail.com").strip()
+EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+# Only application emails whose subject contains this are processed.
+EMAIL_SUBJECT_FILTER = os.getenv("EMAIL_SUBJECT_FILTER", "New application for").strip()
+# How many days back each fetch looks (already-fetched emails are skipped).
+EMAIL_LOOKBACK_DAYS = int(os.getenv("EMAIL_LOOKBACK_DAYS", "7"))

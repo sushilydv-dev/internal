@@ -85,6 +85,15 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
+
+CREATE TABLE IF NOT EXISTS fetched_emails (
+    message_id  TEXT PRIMARY KEY,
+    position    TEXT,
+    candidate   TEXT,
+    file_name   TEXT,
+    file_id     TEXT,
+    fetched_at  TEXT NOT NULL
+);
 """
 
 
@@ -445,3 +454,19 @@ def candidates(outcome: str | None = None, role_folder_id: str | None = None,
     args.append(limit)
     with _conn() as c:
         return [dict(r) for r in c.execute(sql, args)]
+
+
+# ---------------------------------------------------------------- fetched emails
+
+def email_already_fetched(message_id: str) -> bool:
+    with _conn() as c:
+        return c.execute("SELECT 1 FROM fetched_emails WHERE message_id = ?", (message_id,)).fetchone() is not None
+
+
+def mark_email_fetched(message_id: str, position: str, candidate: str, file_name: str, file_id: str | None) -> None:
+    with _conn() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO fetched_emails (message_id, position, candidate, file_name, file_id, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (message_id, position, candidate, file_name, file_id, now()),
+        )

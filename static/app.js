@@ -211,7 +211,10 @@ function folderGrid(folders) {
 
 function rootHtml(data) {
   return `<div class="page-head"><div><h1>Positions</h1><div class="sub">Choose the position you're hiring for.</div></div>
-      <button class="btn primary" id="new-folder" data-label="position">+ New position</button></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="fetch-emails">Fetch from email</button>
+        <button class="btn primary" id="new-folder" data-label="position">+ New position</button>
+      </div></div>
     ${data.subfolders.length ? folderGrid(data.subfolders)
       : `<div class="card"><div class="empty">${I.inbox}<strong>No positions yet</strong>Click + New position, or create folders like "Full Stack" in the WorkDrive resumes folder.</div></div>`}`;
 }
@@ -320,6 +323,10 @@ function renderResumeRows() {
 function bindFolder(view, data) {
   bindRows(view);
   $("#new-folder")?.addEventListener("click", () => newFolderDialog(data));
+  $("#fetch-emails")?.addEventListener("click", () => fetchEmails(data));
+  if ($("#fetch-emails")) {  // page opened/refreshed while a fetch is already running
+    api("/api/fetch-emails/status").then(st => { if (st.running) fetchEmails(data, { attach: true }); }).catch(() => {});
+  }
   $("#upload-btn")?.addEventListener("click", () => $("#upload-input").click());
   $("#upload-input")?.addEventListener("change", e => uploadResumes(data, Array.from(e.target.files || [])));
   if (data.depth === 0) return;
@@ -407,6 +414,43 @@ function newFolderDialog(data) {
   };
   $("#create-folder").addEventListener("click", submit);
   input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+}
+
+let fetchPoll = null;
+
+function fetchLabel(st) {
+  if (st.phase === "scanning") return "Reading emails…";
+  return st.total ? `Fetching ${st.done}/${st.total}…` : "Fetching…";
+}
+
+// Starts (or re-attaches to) the background email fetch and shows live progress.
+async function fetchEmails(data, { attach = false } = {}) {
+  const btn = $("#fetch-emails");
+  if (!btn || fetchPoll) return;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> Reading emails…`;
+  const done = () => { clearInterval(fetchPoll); fetchPoll = null; };
+  const reset = () => { const b = $("#fetch-emails"); if (b) { b.disabled = false; b.textContent = "Fetch from email"; } };
+  let st;
+  try {
+    st = attach ? await api("/api/fetch-emails/status") : await api("/api/fetch-emails", { method: "POST" });
+  } catch (e) { toast(e.message, "error"); return reset(); }
+  fetchPoll = true;
+  const tick = async () => {
+    try { st = await api("/api/fetch-emails/status"); } catch { return; }
+    const b = $("#fetch-emails");
+    if (b && st.running) b.innerHTML = `<span class="spinner"></span> ${fetchLabel(st)}`;
+    if (st.running) return;
+    done();
+    if (st.error) toast(st.error, "error");
+    else if (!st.total) toast("No new application emails.");
+    else toast(`Fetched ${st.saved} of ${st.total} resumes${st.failed ? ` · ${st.failed} failed` : ""}`, st.failed ? "error" : "info");
+    st.results.filter(r => !r.ok).slice(0, 5).forEach(r => toast(`${r.candidate || r.subject}: ${r.error}`, "error"));
+    reset();
+    if (location.hash === "#/" || location.hash === "") route();
+  };
+  fetchPoll = setInterval(tick, 1500);
+  tick();
 }
 
 async function uploadResumes(data, files) {

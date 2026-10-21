@@ -19,6 +19,7 @@ from werkzeug.exceptions import HTTPException
 
 import ai_scorer
 import config
+import email_fetcher
 import pipeline
 import storage
 import zoho_auth
@@ -64,6 +65,8 @@ def handle_uncaught(e):
         if isinstance(e, OutsideRootError):
             return _error(str(e), 403)
         if isinstance(e, (WorkDriveError, ZohoAuthError)):
+            return _error(str(e), 502)
+        if isinstance(e, email_fetcher.EmailFetchError):
             return _error(str(e), 502)
         if isinstance(e, pipeline.PipelineError):
             return _error(str(e), 400)
@@ -172,6 +175,20 @@ def api_upload(folder_id):
     if ok:
         storage.log("info", f"Uploaded {len(ok)} resume(s) from the app: {', '.join(r['name'] for r in ok)}.")
     return jsonify({"results": results, "uploaded": len(ok), "failed": len(results) - len(ok)})
+
+
+# ---------------------------------------------------------------- email fetch
+
+@app.post("/api/fetch-emails")
+def api_fetch_emails():
+    """Starts a background fetch of Indeed application emails (or reports the one
+    already running). Poll GET /api/fetch-emails/status for progress."""
+    return jsonify(email_fetcher.start_fetch())
+
+
+@app.get("/api/fetch-emails/status")
+def api_fetch_status():
+    return jsonify(email_fetcher.status())
 
 
 # ---------------------------------------------------------------- JDs

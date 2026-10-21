@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: resume-screener
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    # ONE worker: screening runs and the email fetch keep their progress in memory
+    # and run in background threads, so every request must hit the same process.
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 180 --bind 0.0.0.0:$PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ZOHO_DOMAIN
+        value: com
+      - key: ZOHO_CLIENT_ID
+        sync: false
+      - key: ZOHO_CLIENT_SECRET
+        sync: false
+      - key: ZOHO_REFRESH_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: WORKDRIVE_ROOT_FOLDER_ID
+        sync: false
+      - key: EMAIL_ADDRESS
+        value: helios.cvtechlabs@gmail.com
+      - key: EMAIL_APP_PASSWORD
+        sync: false
+      # With a Render persistent disk mounted at /var/data, uncomment so the history
+      # (screenings, fetched emails) survives redeploys:
+      # - key: DATABASE_PATH
+      #   value: /var/data/screener.db
