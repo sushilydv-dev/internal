@@ -17,7 +17,6 @@ import email
 import imaplib
 import os
 import re
-import sys
 import time
 from datetime import datetime, timedelta
 from email.header import decode_header, make_header
@@ -44,7 +43,7 @@ class EmailFetchError(Exception):
     pass
 
 
-_BROWSER_TABS = int(os.getenv("FETCH_TABS", "4"))  # parallel Chrome tabs (each ~150 MB RAM)
+_BROWSER_TABS = 4      # parallel Chrome tabs
 _CHROME_BATCH = 20     # restart Chrome after this many resumes
 _UPLOAD_WORKERS = 4    # parallel WorkDrive uploads
 _IMAP_BATCH = 20       # mail bodies fetched per IMAP call
@@ -184,12 +183,39 @@ def download_resume(link: str) -> tuple[bytes, str]:
     raise EmailFetchError("Resume page opened but no downloadable PDF/DOCX was found (the page may need a login or JavaScript).")
 
 
+# Indeed blocks default headless Chrome. These make it look like a normal desktop
+# browser (no 'webdriver' flag, real user agent, plugins, languages) so it is let in.
+_STEALTH_JS = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+window.chrome = window.chrome || {runtime: {}};
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+"""
+_CHROME_ARGS = ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+
+
+async def _launch_browser(pw):
+    """Headless, stealth-patched browser -> (browser, context). Uses installed Google
+    Chrome when there is one (a dev PC), else Playwright's bundled Chromium (a server)."""
+    headless = os.getenv("FETCH_HEADLESS", "1").strip().lower() in ("1", "true", "yes", "on")
+    try:
+        browser = await pw.chromium.launch(channel="chrome", headless=headless, args=_CHROME_ARGS)
+    except Exception:
+        browser = await pw.chromium.launch(headless=headless, args=_CHROME_ARGS)
+    ctx = await browser.new_context(
+        user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                    f"Chrome/{browser.version} Safari/537.36"),
+        viewport={"width": 1366, "height": 768}, locale="en-US", accept_downloads=True)
+    await ctx.add_init_script(_STEALTH_JS)
+    return browser, ctx
+
+
 async def _download_tab(browser, link: str):
     """One Indeed resume through its own tab, with one retry (a rate-limit 'Blocked'
     page or a slow load). Returns (bytes, ext) or an EmailFetchError."""
     err = EmailFetchError("Download failed.")
     for attempt in range(2):
-        page = await browser.new_page(accept_downloads=True)
+        page = await browser.new_page()
         try:
             await page.goto(link, wait_until="domcontentloaded", timeout=60000)
             if "blocked" in (await page.title()).lower():
@@ -372,22 +398,16 @@ async def _pipeline(jobs: list[dict], finish) -> None:
     try:
         for i in range(0, len(jobs), _CHROME_BATCH):
             chunk = jobs[i:i + _CHROME_BATCH]
-            browser, launch_err, pw = None, None, None
+            browser, ctx, launch_err, pw = None, None, None, None
             if any(_is_indeed(j["link"]) for j in chunk):
-                if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
-                    launch_err = EmailFetchError(
-                        "Indeed resumes can only be downloaded from a computer with a screen and Chrome "
-                        "(Indeed blocks headless/server browsers). Run 'Fetch from email' from the local app.")
-                elif async_playwright is None:
-                    launch_err = EmailFetchError("Indeed needs a real browser: run 'pip install playwright'.")
+                if async_playwright is None:
+                    launch_err = EmailFetchError("Indeed needs a browser: run 'pip install playwright' and 'playwright install chromium'.")
                 else:
                     try:
                         pw = await async_playwright().start()
-                        browser = await pw.chromium.launch(
-                            channel="chrome", headless=False,
-                            args=["--no-sandbox", "--disable-dev-shm-usage"] if sys.platform.startswith("linux") else [])
+                        browser, ctx = await _launch_browser(pw)
                     except Exception as e:
-                        launch_err = EmailFetchError(f"Could not start Chrome: {str(e).splitlines()[0]}")
+                        launch_err = EmailFetchError(f"Could not start the browser: {str(e).splitlines()[0]}")
 
             async def one(job):
                 if not _is_indeed(job["link"]):
@@ -395,11 +415,11 @@ async def _pipeline(jobs: list[dict], finish) -> None:
                         out = await loop.run_in_executor(pool, download_resume, job["link"])
                     except EmailFetchError as e:
                         out = e
-                elif browser is None:
+                elif ctx is None:
                     out = launch_err
                 else:
                     async with sem:
-                        out = await _download_tab(browser, job["link"])
+                        out = await _download_tab(ctx, job["link"])
                 await loop.run_in_executor(pool, finish, job, out)
 
             try:
