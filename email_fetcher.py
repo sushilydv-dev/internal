@@ -17,6 +17,7 @@ import email
 import imaplib
 import os
 import re
+import sys
 import time
 from datetime import datetime, timedelta
 from email.header import decode_header, make_header
@@ -28,6 +29,11 @@ from threading import Lock, Thread
 from urllib.parse import urljoin, urlparse
 
 import requests
+
+# On Render the default browser cache (~/.cache) is not kept between build and runtime.
+# Keep Playwright's browsers inside the project folder instead (same as PLAYWRIGHT_BROWSERS_PATH=0).
+if os.getenv("RENDER") and not os.getenv("PLAYWRIGHT_BROWSERS_PATH"):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 try:
     from playwright.async_api import Error as PWError, async_playwright
@@ -44,7 +50,7 @@ class EmailFetchError(Exception):
 
 
 _BROWSER_TABS = 4      # parallel Chrome tabs
-_CHROME_BATCH = 20     # restart Chrome after this many resumes
+_CHROME_BATCH = 10     # restart Chrome after this many resumes (frees leaked memory)
 _UPLOAD_WORKERS = 4    # parallel WorkDrive uploads
 _IMAP_BATCH = 20       # mail bodies fetched per IMAP call
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -191,22 +197,52 @@ window.chrome = window.chrome || {runtime: {}};
 Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
 Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
 """
-_CHROME_ARGS = ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+_CHROME_ARGS = ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage",
+                # trim Chromium's memory: a 512 MB Render instance is easily exhausted
+                "--disable-gpu", "--disable-extensions", "--mute-audio", "--disable-background-networking",
+                "--js-flags=--max-old-space-size=128"]
+_SKIP_RESOURCES = {"image", "media", "font"}  # the resume page doesn't need them to offer the Download button
+
+
+async def _install_chromium() -> None:
+    """Downloads Playwright's Chromium (~150 MB, once per deploy) when it is missing."""
+    storage.log("info", "Email fetch: Chromium not found - downloading it (first run only, ~1-2 min).")
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "playwright", "install", "chromium",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise EmailFetchError("Downloading Chromium timed out.")
+    if proc.returncode != 0:
+        raise EmailFetchError(f"Could not download Chromium: {out.decode(errors='replace')[-300:]}")
 
 
 async def _launch_browser(pw):
     """Headless, stealth-patched browser -> (browser, context). Uses installed Google
-    Chrome when there is one (a dev PC), else Playwright's bundled Chromium (a server)."""
+    Chrome when there is one (a dev PC), else Playwright's bundled Chromium (a server),
+    downloading that first if the build step didn't."""
     headless = os.getenv("FETCH_HEADLESS", "1").strip().lower() in ("1", "true", "yes", "on")
     try:
         browser = await pw.chromium.launch(channel="chrome", headless=headless, args=_CHROME_ARGS)
     except Exception:
-        browser = await pw.chromium.launch(headless=headless, args=_CHROME_ARGS)
+        try:
+            browser = await pw.chromium.launch(headless=headless, args=_CHROME_ARGS)
+        except Exception as e:
+            if "Executable doesn't exist" not in str(e):
+                raise
+            await _install_chromium()
+            browser = await pw.chromium.launch(headless=headless, args=_CHROME_ARGS)
     ctx = await browser.new_context(
         user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                     f"Chrome/{browser.version} Safari/537.36"),
         viewport={"width": 1366, "height": 768}, locale="en-US", accept_downloads=True)
     await ctx.add_init_script(_STEALTH_JS)
+
+    async def _lean(route):
+        await (route.abort() if route.request.resource_type in _SKIP_RESOURCES else route.continue_())
+    await ctx.route("**/*", _lean)
     return browser, ctx
 
 

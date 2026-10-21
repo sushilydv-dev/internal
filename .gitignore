@@ -43,3 +43,6 @@ Thumbs.db
 # Optional: keep generated local media if not wanted
 # static/uploads/
 # uploads/
+
+# Local Windows virtualenv
+.venv-win/

@@ -436,16 +436,30 @@ async function fetchEmails(data, { attach = false } = {}) {
     st = attach ? await api("/api/fetch-emails/status") : await api("/api/fetch-emails", { method: "POST" });
   } catch (e) { toast(e.message, "error"); return reset(); }
   fetchPoll = true;
+  let misses = 0, sawRunning = true, skip = 0;
   const tick = async () => {
-    try { st = await api("/api/fetch-emails/status"); } catch { return; }
+    if (skip > 0) { skip--; return; }  // back off while the server is failing, so we don't add to its load
+    try { st = await api("/api/fetch-emails/status"); misses = 0; }
+    catch {
+      // Server unreachable (restarting / overloaded). Wait longer after each miss; give up after ~2 min.
+      misses++;
+      if (misses >= 8) {
+        done(); reset();
+        return toast("Lost connection to the server. It may have run out of memory and restarted. Resumes already fetched are saved - click Fetch again to continue.", "error");
+      }
+      skip = Math.min(2 ** misses, 20);  // ticks to skip (1.5s each): 2, 4, 8, 16, 20...
+      return;
+    }
     const b = $("#fetch-emails");
-    if (b && st.running) b.innerHTML = `<span class="spinner"></span> ${fetchLabel(st)}`;
-    if (st.running) return;
+    if (st.running) { sawRunning = true; if (b) b.innerHTML = `<span class="spinner"></span> ${fetchLabel(st)}`; return; }
     done();
+    const results = Array.isArray(st.results) ? st.results : [];
     if (st.error) toast(st.error, "error");
+    else if (sawRunning && !st.total && !results.length && st.phase === "idle")
+      toast("The server restarted during the fetch. Resumes already fetched are saved - click Fetch again to continue.", "error");
     else if (!st.total) toast("No new application emails.");
     else toast(`Fetched ${st.saved} of ${st.total} resumes${st.failed ? ` · ${st.failed} failed` : ""}`, st.failed ? "error" : "info");
-    st.results.filter(r => !r.ok).slice(0, 5).forEach(r => toast(`${r.candidate || r.subject}: ${r.error}`, "error"));
+    results.filter(r => !r.ok).slice(0, 5).forEach(r => toast(`${r.candidate || r.subject}: ${r.error}`, "error"));
     reset();
     if (location.hash === "#/" || location.hash === "") route();
   };
